@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Library | Sistem Informasi Rental Buku</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/vue-router@4"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+
+    <style>
+        /* Mencegah layar berkedip sebelum Vue selesai dimuat */
+        [v-cloak] { display: none; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans antialiased">
+    
+    <div id="app" v-cloak>
+        <nav class="bg-blue-600 text-white shadow-md">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <span class="font-bold text-xl tracking-wider">E-LIBRARY</span>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <router-link to="/" class="hover:text-blue-200 transition">Beranda</router-link>
+                        <router-link v-if="!isLoggedIn" to="/login" class="hover:text-blue-200 transition">Login</router-link>
+                        <router-link v-if="isLoggedIn" to="/dashboard" class="hover:text-blue-200 transition">Dashboard</router-link>
+                        <button v-if="isLoggedIn" @click="logout" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded transition">Logout</button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <router-view></router-view>
+        </main>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+        const { createRouter, createWebHashHistory } = VueRouter;
+
+        // --- KONFIGURASI AXIOS ---
+        axios.defaults.baseURL = 'http://localhost:8080';
+
+        // Interceptor: Otomatis menyisipkan token di setiap request
+        axios.interceptors.request.use(config => {
+            const token = localStorage.getItem('token');
+            if (token) config.headers.Authorization = `Bearer ${token}`;
+            return config;
+        });
+
+        // Interceptor: Menangani error global (DEBUGGING MODE)
+        axios.interceptors.response.use(response => response, error => {
+            
+            // Kita tampilkan pesan error aslinya di Console browser
+            console.error("===== ADA ERROR DARI BACKEND =====");
+            if(error.response) {
+                console.error("Status:", error.response.status);
+                console.error("Pesan:", error.response.data);
+            } else {
+                console.error("Detail Error:", error);
+            }
+
+            // FITUR TENDANG KE LOGIN KITA MATIKAN SEMENTARA AGAR TIDAK LOOPING REFRESH
+            // if (error.response && error.response.status === 401) {
+            //     localStorage.removeItem('token');
+            //     localStorage.removeItem('isLoggedIn');
+            //     window.location.hash = '#/login';
+            // }
+            
+            return Promise.reject(error);
+        });
+
+        // --- KOMPONEN VUE ---
+
+        // 1. Komponen Beranda
+        const Home = {
+            template: `
+                <div class="text-center py-20 bg-white shadow rounded-lg mt-10">
+                    <h1 class="text-4xl font-bold text-gray-800 mb-4">Selamat Datang di E-Library</h1>
+                    <p class="text-lg text-gray-600 mb-8">Sistem Informasi Peminjaman Buku Terpadu.</p>
+                    <router-link to="/dashboard" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition">Mulai Jelajahi</router-link>
+                </div>
+            `
+        };
+
+        // 2. Komponen Login
+        const Login = {
+            template: `
+                <div class="max-w-md mx-auto bg-white p-8 rounded shadow mt-10">
+                    <h2 class="text-2xl font-bold mb-6 text-center text-gray-800">Login Administrator</h2>
+                    <form @submit.prevent="handleLogin">
+                        <div class="mb-4">
+                            <label class="block text-gray-700 mb-2">Username</label>
+                            <input v-model="username" type="text" class="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                        </div>
+                        <div class="mb-6">
+                            <label class="block text-gray-700 mb-2">Password</label>
+                            <input v-model="password" type="password" class="w-full border p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                        </div>
+                        <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition">
+                            Login
+                        </button>
+                    </form>
+                    <p v-if="errorMessage" class="text-red-500 mt-4 text-center">{{ errorMessage }}</p>
+                </div>
+            `,
+            setup() {
+                const username = ref('');
+                const password = ref('');
+                const errorMessage = ref('');
+
+                const handleLogin = async () => {
+                    try {
+                        const response = await axios.post('/login', {
+                            username: username.value,
+                            password: password.value
+                        });
+                        
+                        localStorage.setItem('token', response.data.token);
+                        localStorage.setItem('isLoggedIn', 'true');
+                        window.location.reload(); 
+                    } catch (error) {
+                        errorMessage.value = error.response?.data?.error || error.response?.data?.messages?.error || 'Login gagal. Periksa kembali data Anda.';
+                    }
+                };
+
+                return { username, password, errorMessage, handleLogin };
+            }
+        };
+
+        // 3. Komponen Dashboard (Akses Data API & CRUD)
+        const Dashboard = {
+            template: `
+                <div>
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-gray-800">Daftar Buku (Data Terproteksi)</h2>
+                        <button @click="showModal = true" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg shadow transition">
+                            + Tambah Buku
+                        </button>
+                    </div>
+
+                    <div v-if="pesanSukses" class="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded mb-4">
+                        {{ pesanSukses }}
+                    </div>
+
+                    <div class="bg-white shadow rounded-lg overflow-hidden">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-100 text-gray-700 border-b">
+                                    <th class="p-4">Judul Buku</th>
+                                    <th class="p-4">Penulis</th>
+                                    <th class="p-4">Tahun Terbit</th>
+                                    <th class="p-4 text-center">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="buku in daftarBuku" :key="buku.id" class="border-b hover:bg-gray-50">
+                                    <td class="p-4 font-semibold">{{ buku.judul }}</td>
+                                    <td class="p-4">{{ buku.penulis }}</td>
+                                    <td class="p-4">{{ buku.tahun_terbit }}</td>
+                                    <td class="p-4 text-center">
+                                        <button @click="hapusBuku(buku.id)" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition">
+                                            Hapus
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr v-if="daftarBuku.length === 0">
+                                    <td colspan="4" class="p-4 text-center text-gray-500">Belum ada data buku di database.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div v-if="showModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                        <div class="bg-white p-6 rounded-lg w-full max-w-md shadow-xl relative">
+                            <h3 class="text-xl font-bold mb-4 border-b pb-2">Tambah Buku Baru</h3>
+                            <form @submit.prevent="simpanBuku">
+                                <div class="mb-3">
+                                    <label class="block text-gray-700 text-sm font-bold mb-1">Judul Buku</label>
+                                    <input v-model="form.judul" type="text" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="block text-gray-700 text-sm font-bold mb-1">Penulis</label>
+                                    <input v-model="form.penulis" type="text" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" required>
+                                </div>
+                                <div class="mb-3 flex space-x-4">
+                                    <div class="w-1/2">
+                                        <label class="block text-gray-700 text-sm font-bold mb-1">Tahun Terbit</label>
+                                        <input v-model="form.tahun_terbit" type="number" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" required>
+                                    </div>
+                                    <div class="w-1/2">
+                                        <label class="block text-gray-700 text-sm font-bold mb-1">ID Kategori</label>
+                                        <input v-model="form.kategori_id" type="number" class="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500 outline-none" required placeholder="Contoh: 1">
+                                    </div>
+                                </div>
+                                <div class="flex justify-end space-x-2 mt-6">
+                                    <button type="button" @click="showModal = false" class="bg-gray-400 hover:bg-gray-500 text-white px-4 py-2 rounded transition">Batal</button>
+                                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition">Simpan Data</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `,
+            setup() {
+                const daftarBuku = ref([]);
+                const showModal = ref(false);
+                const pesanSukses = ref('');
+                
+                // State untuk menampung isian form
+                const form = ref({
+                    judul: '',
+                    penulis: '',
+                    tahun_terbit: '',
+                    kategori_id: ''
+                });
+
+                // Fungsi Read (GET)
+                const fetchBuku = async () => {
+                    try {
+                        const response = await axios.get('/buku');
+                        daftarBuku.value = response.data;
+                    } catch (error) {
+                        console.error("Gagal mengambil data buku", error);
+                    }
+                };
+
+                // Fungsi Create (POST)
+                const simpanBuku = async () => {
+                    try {
+                        await axios.post('/buku', form.value);
+                        showModal.value = false; // Tutup modal
+                        pesanSukses.value = "Buku berhasil ditambahkan!";
+                        
+                        // Bersihkan form setelah sukses
+                        form.value = { judul: '', penulis: '', tahun_terbit: '', kategori_id: '' }; 
+                        
+                        fetchBuku(); // Refresh tabel otomatis
+                        
+                        // Hilangkan pesan sukses setelah 3 detik
+                        setTimeout(() => pesanSukses.value = '', 3000);
+                    } catch (error) {
+                        console.error("Gagal simpan buku", error);
+                        alert("Gagal menyimpan data buku. Pastikan API mengizinkan metode POST.");
+                    }
+                };
+
+                // Fungsi Delete (DELETE)
+                const hapusBuku = async (id) => {
+                    if(confirm('Yakin ingin menghapus buku ini?')) {
+                        try {
+                            await axios.delete('/buku/' + id);
+                            pesanSukses.value = "Buku berhasil dihapus!";
+                            fetchBuku(); // Refresh tabel otomatis
+                            setTimeout(() => pesanSukses.value = '', 3000);
+                        } catch (error) {
+                            console.error("Gagal hapus buku", error);
+                            alert("Gagal menghapus buku. Pastikan API mengizinkan metode DELETE.");
+                        }
+                    }
+                };
+
+                // Otomatis fetch data saat komponen dimuat
+                onMounted(() => {
+                    fetchBuku();
+                });
+
+                return { daftarBuku, showModal, form, pesanSukses, simpanBuku, hapusBuku };
+            }
+        };
+
+        
+        // --- SETUP ROUTER ---
+        const routes = [
+            { path: '/', component: Home },
+            { path: '/login', component: Login },
+            { path: '/dashboard', component: Dashboard, meta: { requiresAuth: true } }
+        ];
+
+        const router = createRouter({
+            history: createWebHashHistory(),
+            routes
+        });
+
+        // Proteksi Halaman Dashboard (Navigation Guard)
+        router.beforeEach((to, from, next) => {
+            const loggedIn = localStorage.getItem('isLoggedIn') === 'true';
+            if (to.meta.requiresAuth && !loggedIn) {
+                next('/login');
+            } else if (to.path === '/login' && loggedIn) {
+                next('/dashboard');
+            } else {
+                next();
+            }
+        });
+
+        // --- INISIALISASI APLIKASI VUE ---
+        const app = createApp({
+            setup() {
+                const isLoggedIn = ref(localStorage.getItem('isLoggedIn') === 'true');
+
+                const logout = () => {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('isLoggedIn');
+                    isLoggedIn.value = false;
+                    window.location.hash = '#/login';
+                    window.location.reload();
+                };
+
+                return { isLoggedIn, logout };
+            }
+        });
+
+        app.use(router);
+        app.mount('#app');
+    </script>
+</body>
+</html>
